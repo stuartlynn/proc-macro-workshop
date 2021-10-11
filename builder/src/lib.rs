@@ -1,59 +1,54 @@
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{parse_macro_input, DeriveInput};
+use syn::{parse_macro_input, Data, DataStruct, DeriveInput, Fields};
 
 #[proc_macro_derive(Builder)]
 pub fn derive(input: TokenStream) -> TokenStream {
     let syn_tree = parse_macro_input!(input as DeriveInput);
     let name = syn_tree.ident;
+
+    let fields  = if let Data::Struct(DataStruct { fields: Fields::Named(fields), .. }) =  syn_tree.data{
+        fields.named
+    }else{
+       panic!("Only supported for structs")
+    };
+
+    let field_name: Vec<proc_macro2::Ident> = fields.iter().map(|field| field.ident.clone().unwrap()).collect();
+    let field_type : Vec<syn::Type> = fields.iter().map(|field| field.ty.clone()).collect();
+    // eprintln!("INPUT: {:#?}", field_name );
+
     let builder_name =
         proc_macro2::Ident::new(&format!("{}Builder", name), proc_macro2::Span::call_site());
+
     let tokens = quote! {
-        pub struct  #builder_name{
-            executable: Option<String>,
-            args: Option<Vec<String>>,
-            env: Option<Vec<String>>,
-            current_dir: Option<String>
-        }
+         pub struct  #builder_name{
+             #(#field_name: Option<#field_type>,)*
+         }
+
         impl #name{
             pub fn builder() -> #builder_name{
                 #builder_name{
-                    executable: None,
-                    args: None,
-                    env:None,
-                    current_dir:None
+                    #(#field_name: None,)*
                 }
             }
         }
-
-        use std::error;
+        
         impl #builder_name{
-            fn executable(&mut self, executable: String)-> &mut Self{
-                self.executable = Some(executable);
+            #(fn #field_name(&mut self, #field_name: #field_type) -> &mut Self{
+                self.#field_name = Some(#field_name);
                 self
-            }
-            fn current_dir(&mut self, current_dir: String)-> &mut Self{
-                self.current_dir= Some(current_dir);
-                self
-            }
-            fn args(&mut self, args: Vec<String>)->&mut Self{
-                self.args = Some(args);
-                self
-            }
-            fn env(&mut self, env: Vec<String>)->&mut Self{
-                self.env= Some(env);
-                self
-            }
-            fn build(&mut self) -> Result<#name, Box<dyn error::Error>>{
-                let executable = self.executable.clone().ok_or_else(|| "Executable was false")?;
-                let args = self.args.clone().ok_or_else(|| "Executable was false")?;
-                let env= self.env.clone().ok_or_else(|| "Executable was false")?;
-                let current_dir = self.current_dir.clone().ok_or_else(|| "Executable was false")?;
+            })*
+
+            fn build(&mut self) -> Result<#name, Box<dyn std::error::Error>>{
+                #(
+                    let #field_name = self.#field_name.clone().ok_or_else(||"field missing")?;
+                 )*
+                // let executable = self.executable.clone().ok_or_else(|| "Executable was false")?;
+                // let args = self.args.clone().ok_or_else(|| "Executable was false")?;
+                // let env= self.env.clone().ok_or_else(|| "Executable was false")?;
+                // let current_dir = self.current_dir.clone().ok_or_else(|| "Executable was false")?;
                 let construct = #name{
-                    executable,
-                    args,
-                    env,
-                    current_dir
+                    #(#field_name,)*
                 };
                 Ok(construct)
             }
